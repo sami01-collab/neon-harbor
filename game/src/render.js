@@ -32,8 +32,9 @@ export function updateCamera(camera, target, dt, viewW, viewH, worldSize) {
   camera.y += (ty - camera.y) * k;
   const hw = viewW / 2;
   const hh = viewH / 2;
-  camera.x = Math.max(hw - 80, Math.min(worldSize - hw + 80, camera.x));
-  camera.y = Math.max(hh - 80, Math.min(worldSize - hh + 80, camera.y));
+  // Keep the view inside the world so no empty ground shows past the edge.
+  camera.x = viewW >= worldSize ? worldSize / 2 : Math.max(hw, Math.min(worldSize - hw, camera.x));
+  camera.y = viewH >= worldSize ? worldSize / 2 : Math.max(hh, Math.min(worldSize - hh, camera.y));
 }
 
 function roundRect(ctx, x, y, w, h, r) {

@@ -186,7 +186,7 @@ function demoDriveInput(state) {
     const d = (line - along) * dir;
     if (d > 0 && d < nextDist) nextDist = d;
   }
-  if (state.demoTargetAngle === null && nextDist < 40 && Math.random() < 0.45) {
+  if (state.demoTargetAngle === null && !state.demoNoTurn && nextDist < 40 && Math.random() < 0.45) {
     const turnLeft = Math.random() < 0.5;
     const base = axis === 'v' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
     state.demoTargetAngle = base + (turnLeft ? -Math.PI / 2 : Math.PI / 2);
@@ -202,13 +202,21 @@ function demoDriveInput(state) {
       else return { throttle, steer: Math.max(-1, Math.min(1, diff * 2.5)), handbrake: false };
     }
   }
-  // Lane keeping: steer toward the road heading, nudged toward the lane.
-  const near = world.nearestRoad(v.x, v.y);
-  const heading = axis === 'v' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-  let target = heading;
+  // Lane keeping by pure pursuit: aim at a point on the lane centreline
+  // 90 units ahead, on the road of the axis we are actually travelling on.
+  const roadLines = axis === 'v' ? world.vertical : world.horizontal;
+  const pos = axis === 'v' ? v.x : v.y;
+  let roadCoord = roadLines[0];
+  let bestD = Infinity;
+  for (const line of roadLines) {
+    const d = Math.abs(line - pos);
+    if (d < bestD) { bestD = d; roadCoord = line; }
+  }
   const laneOff = axis === 'v' ? (dir > 0 ? -10 : 10) : (dir > 0 ? 10 : -10);
-  const lateral = axis === 'v' ? (v.x - (near.coord + laneOff)) : (v.y - (near.coord + laneOff));
-  target += Math.max(-0.35, Math.min(0.35, -lateral * 0.012)) * dir;
+  const lookAhead = 90;
+  const tx = axis === 'v' ? roadCoord + laneOff : along + dir * lookAhead;
+  const ty = axis === 'v' ? along + dir * lookAhead : roadCoord + laneOff;
+  const target = Math.atan2(ty - v.y, tx - v.x);
   let diff = target - v.angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
@@ -352,9 +360,9 @@ function updatePlaying(state, dt) {
 
   // Wasted.
   if (state.player.dead && state.mode === 'playing') {
-    state.mode = 'wasted';
     state.wastedTimer = 0;
     state.audio.engineStop();
+    setMode(state, 'wasted');
   }
 
   // Autosave every 45 seconds of play.
