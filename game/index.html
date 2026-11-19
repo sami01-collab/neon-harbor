@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEON HARBOR — open-world crime game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0a12; }
+  body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #fff; }
+  #game { display: block; width: 100vw; height: 100vh; cursor: crosshair; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; display: none; z-index: 5; }
+  .hud-panel {
+    position: absolute;
+    background: rgba(8, 10, 20, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+    padding: 8px 12px;
+    backdrop-filter: blur(2px);
+  }
+  #hud-top-right { top: 14px; right: 14px; text-align: right; min-width: 190px; }
+  #hud-cash { font-size: 26px; font-weight: 800; color: #3cdc78; letter-spacing: 0.5px; }
+  #hud-rank { font-size: 11px; color: #c8c8d8; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 1px; }
+  #hud-stars { font-size: 20px; color: #55556a; letter-spacing: 3px; margin-top: 4px; }
+  #hud-stars.wanted-hot { color: #ffd228; text-shadow: 0 0 10px rgba(255, 210, 40, 0.8); }
+  #hud-clock { font-size: 15px; color: #e8e8f0; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  #hud-top-left { top: 14px; left: 14px; }
+  #hud-health-row { display: flex; align-items: center; gap: 8px; }
+  #hud-health-label { font-size: 11px; letter-spacing: 1.5px; color: #c8c8d8; }
+  #hud-health-bar { width: 150px; height: 12px; background: rgba(255,255,255,0.15); border-radius: 6px; overflow: hidden; }
+  #hud-health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2fd47a, #7ae88a); border-radius: 6px; transition: width 0.2s; }
+  #hud-health-fill.health-low { background: linear-gradient(90deg, #d42f2f, #ff7a5a); }
+  #hud-health-text { font-size: 13px; font-weight: 700; min-width: 28px; }
+  #hud-objective { margin-top: 7px; font-size: 13px; color: #ffd76a; max-width: 340px; }
+  #hud-speed {
+    position: absolute; bottom: 16px; right: 16px; display: none;
+    font-size: 30px; font-weight: 800; text-align: right; line-height: 1;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+  #hud-speed small { display: block; font-size: 11px; font-weight: 600; color: #c8c8d8; letter-spacing: 2px; }
+  #hud-hint {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    font-size: 13px; color: #e8e8f0; background: rgba(8, 10, 20, 0.55);
+    padding: 6px 14px; border-radius: 20px; white-space: nowrap;
+  }
+  #hud-messages {
+    position: absolute; left: 14px; bottom: 150px; width: 340px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .hud-message {
+    font-size: 13px; background: rgba(8, 10, 20, 0.6); border-left: 3px solid #3cdc78;
+    padding: 5px 10px; border-radius: 0 6px 6px 0;
+  }
+  .hud-message-old { opacity: 0.45; }
+  #minimap-wrap {
+    position: absolute; left: 14px; bottom: 14px;
+    border: 2px solid rgba(255,255,255,0.25); border-radius: 50%;
+    overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    background: #1a2a1e;
+  }
+  #minimap { display: block; width: 180px; height: 180px; }
+
+  /* ---------- Overlays ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: none; align-items: center; justify-content: center; flex-direction: column;
+    background: rgba(5, 6, 16, 0.55); text-align: center;
+  }
+  .overlay-box {
+    background: rgba(10, 12, 24, 0.88);
+    border: 1px solid rgba(255, 45, 120, 0.35);
+    border-radius: 14px; padding: 36px 48px; max-width: 560px;
+    box-shadow: 0 0 60px rgba(255, 45, 120, 0.15), 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .game-title {
+    font-size: 56px; font-weight: 900; letter-spacing: 4px; line-height: 1;
+    background: linear-gradient(90deg, #ff2d78, #ff7a2d, #22e6ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: none;
+  }
+  .game-subtitle { font-size: 14px; letter-spacing: 5px; color: #a8b8d8; margin-top: 8px; text-transform: uppercase; }
+  .game-tagline { font-size: 14px; color: #c8c8d8; margin: 18px 0 26px; line-height: 1.6; }
+  .menu-btn {
+    display: block; width: 100%; margin: 8px 0; padding: 13px 20px;
+    font-size: 16px; font-weight: 700; letter-spacing: 1px; color: #fff;
+    background: linear-gradient(90deg, #ff2d78, #c81d5e); border: none; border-radius: 8px;
+    cursor: pointer; transition: transform 0.08s, filter 0.15s;
+  }
+  .menu-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+  .menu-btn:active { transform: translateY(0); }
+  .menu-btn.secondary { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); }
+  .menu-btn.secondary:hover { background: rgba(255,255,255,0.2); }
+  .overlay h2 { font-size: 30px; letter-spacing: 3px; margin-bottom: 16px; }
+  .overlay h2.wasted { color: #ff2d2d; font-size: 44px; }
+  .help-grid { text-align: left; font-size: 14px; line-height: 2; color: #d8d8e8; margin: 8px 0 20px; }
+  .help-grid b { color: #ffd76a; display: inline-block; min-width: 150px; }
+  .footer-note { margin-top: 22px; font-size: 11px; color: #8a8aa0; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-panel" id="hud-top-left">
+    <div id="hud-health-row">
+      <span id="hud-health-label">HEALTH</span>
+      <div id="hud-health-bar"><div id="hud-health-fill"></div></div>
+      <span id="hud-health-text">100</span>
+    </div>
+    <div id="hud-objective">Free roam — explore Neon Harbor</div>
+  </div>
+  <div class="hud-panel" id="hud-top-right">
+    <div id="hud-cash">$250</div>
+    <div id="hud-rank">Nobody</div>
+    <div id="hud-stars">☆☆☆☆☆</div>
+    <div id="hud-clock">10:00</div>
+  </div>
+  <div id="hud-messages"></div>
+  <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas></div>
+  <div id="hud-speed"><span id="hud-speed-value">0</span><small>KM/H</small></div>
+  <div id="hud-hint">WASD move · Shift sprint · Click shoot · F punch · E enter car</div>
+</div>
+
+<!-- Start screen -->
+<div class="overlay" id="overlay-start">
+  <div class="overlay-box">
+    <div class="game-title">NEON HARBOR</div>
+    <div class="game-subtitle">An open-world crime game</div>
+    <p class="game-tagline">
+      You are Rook, a driver for a harbour crew run by the fixer Marlow.
+      Steal cars, dodge the cops, grab the cash — and make a name for
+      yourself on the neon streets of Neon Harbor.
+    </p>
+    <button class="menu-btn" id="btn-continue">Continue</button>
+    <button class="menu-btn" id="btn-new">New Game</button>
+    <button class="menu-btn secondary" id="btn-help">How to Play</button>
+    <div class="footer-note">KEYBOARD + MOUSE &nbsp;·&nbsp; PLAYS OFFLINE &nbsp;·&nbsp; PROGRESS SAVES AUTOMATICALLY</div>
+  </div>
+</div>
+
+<!-- Pause -->
+<div class="overlay" id="overlay-pause">
+  <div class="overlay-box">
+    <h2>PAUSED</h2>
+    <button class="menu-btn" id="btn-resume">Resume</button>
+    <button class="menu-btn secondary" id="btn-save">Save Game</button>
+    <button class="menu-btn secondary" id="btn-restart">Restart — back to safehouse</button>
+    <button class="menu-btn secondary" id="btn-mute">Mute (M)</button>
+    <button class="menu-btn secondary" id="btn-quit">Save &amp; quit to menu</button>
+  </div>
+</div>
+
+<!-- Help -->
+<div class="overlay" id="overlay-help">
+  <div class="overlay-box">
+    <h2>HOW TO PLAY</h2>
+    <div class="help-grid">
+      <div><b>WASD / Arrows</b> Move on foot · drive in a car</div>
+      <div><b>Shift</b> Sprint on foot</div>
+      <div><b>Mouse</b> Aim &nbsp;·&nbsp; <b>Click</b> Shoot</div>
+      <div><b>F</b> Punch &nbsp;·&nbsp; <b>E</b> Enter / exit a car</div>
+      <div><b>Space</b> Handbrake (drift)</div>
+      <div><b>P / Esc</b> Pause &nbsp;·&nbsp; <b>M</b> Mute &nbsp;·&nbsp; <b>H</b> Help</div>
+      <div><b>$ drops</b> Walk or drive over them to collect cash</div>
+      <div><b>Stars</b> Crimes raise your wanted level — lie low to lose it</div>
+      <div><b>Water</b> The harbour wrecks cars — stay on dry land</div>
+    </div>
+    <button class="menu-btn" id="btn-help-back">Back</button>
+  </div>
+</div>
+
+<!-- Wasted -->
+<div class="overlay" id="overlay-wasted">
+  <div class="overlay-box">
+    <h2 class="wasted">WASTED</h2>
+    <p class="game-tagline">Rook went down. The hospital patches you up — for a price.</p>
+    <button class="menu-btn" id="btn-respawn">Respawn at Harbor General</button>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
