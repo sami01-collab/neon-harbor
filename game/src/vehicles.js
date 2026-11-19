@@ -52,7 +52,9 @@ export function vehicleCircles(v) {
 
 // --- Player driving physics --------------------------------------------
 // input: { throttle: -1..1, steer: -1..1 (left is -1), handbrake: bool }
-export function driveVehicle(v, input, dt, world, events) {
+// Police cruisers drive through the same physics with isPlayer=false, so
+// their crashes never count as the player's crimes.
+export function driveVehicle(v, input, dt, world, events, isPlayer = true) {
   if (v.wrecked) {
     v.vx *= Math.exp(-2 * dt);
     v.vy *= Math.exp(-2 * dt);
@@ -116,7 +118,7 @@ export function driveVehicle(v, input, dt, world, events) {
   v.x += v.vx * dt;
   v.y += v.vy * dt;
 
-  collideWithWorld(v, world, events, true);
+  collideWithWorld(v, world, events, isPlayer);
 }
 
 // Push a car out of buildings and handle water. Returns true on a hard hit.
@@ -205,6 +207,7 @@ export function resolveVehicleCollisions(vehicles, events) {
                   kind: 'crash', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2,
                   strength: Math.min(1, speed / 400),
                   byPlayer: a.driver === 'player' || b.driver === 'player',
+                  vehicleA: a, vehicleB: b,
                 });
               }
             }

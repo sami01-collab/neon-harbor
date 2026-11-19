@@ -1,10 +1,12 @@
 // NEON HARBOR — scripted screenshot scenes. A ?shot=<name> query parameter
 // puts the game into a fixed, reproducible pose for screenshots: fixed seed,
 // fixed time of day, fixed player position and vehicle. The playtest and
-// the screenshot script drive these scenes; the chase scene is a stand-in
-// until stage 2 adds real police chase AI.
+// the screenshot script drive these scenes; the chase scene runs a genuine
+// police pursuit through the stage-2 chase AI.
 
 import { createVehicle } from './vehicles.js';
+import { spawnCruiser } from './police.js';
+import { startMission } from './missions.js';
 
 export const SHOT_NAMES = ['start', 'drive', 'foot', 'chase'];
 
@@ -63,7 +65,8 @@ export function setupShot(state, name) {
   }
 
   if (name === 'foot') {
-    // On-foot cash grab at the docks in daylight.
+    // On-foot cash grab at the docks in daylight — mission 4, The Drop,
+    // with its marked grab zone and cash on the ground.
     state.timeHours = 11.2;
     state.cash = 480;
     state.player.x = 1010;
@@ -71,35 +74,28 @@ export function setupShot(state, name) {
     state.player.angle = -Math.PI / 2;
     dropCashNear(state, 1065, 1752, 150);
     dropCashNear(state, 985, 1708, 90);
-    state.objective = 'Grab the cash on the docks';
+    startMission(state, 3);
+    state.banner = null; // keep the briefing out of the frame
     return true;
   }
 
   if (name === 'chase') {
-    // STAGE 1 STAND-IN: dusk pursuit pose — three stars, two cruisers on
-    // the player's tail. Stage 2 replaces the posed cruisers with real
-    // police chase AI and roadblocks.
+    // A real pursuit at dusk: three stars, three cruisers on the player's
+    // tail under the live chase AI, mission 3 (Getaway) running.
     state.timeHours = 18.35;
     state.cash = 3420;
-    state.wanted = 3;
-    state.lastCrimeAt = state.now; // the chase just started: no instant decay
     clearTrafficNear(state, 1100, 900, 700);
     putPlayerInCar(state, 'sedan', 1090, 640, Math.PI / 2, '#b03a3a', 240);
-    const c1 = createVehicle('police', 1090, 520, Math.PI / 2);
-    c1.driver = 'traffic';
-    c1.roadAxis = 'v';
-    c1.roadCoord = 1100;
-    c1.dir = 1;
-    c1.cruiseSpeed = 210;
-    c1.speed = 210;
-    const c2 = createVehicle('police', 1090, 440, Math.PI / 2);
-    c2.driver = 'traffic';
-    c2.roadAxis = 'v';
-    c2.roadCoord = 1100;
-    c2.dir = 1;
-    c2.cruiseSpeed = 200;
-    c2.speed = 200;
-    state.vehicles.push(c1, c2);
+    startMission(state, 2);
+    state.banner = null; // keep the briefing out of the frame
+    state.wanted = 3;
+    state.lastCrimeAt = state.now;
+    state.stats.bestWanted = 3;
+    state.police.lastSeen = { x: state.player.x, y: state.player.y };
+    state.police.seen = true;
+    spawnCruiser(state, 1090, 500, Math.PI / 2, 'chase');
+    spawnCruiser(state, 1112, 420, Math.PI / 2, 'cut');
+    spawnCruiser(state, 1068, 360, Math.PI / 2, 'flank');
     state.demoDrive = true;
     state.demoNoTurn = true;
     state.objective = 'Lose the cops — break line of sight';

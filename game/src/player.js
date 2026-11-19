@@ -7,6 +7,7 @@
 import { CONFIG } from './config.js';
 import { driveVehicle, vehicleCircles } from './vehicles.js';
 import { hitPed } from './pedestrians.js';
+import { policeNearby } from './police.js';
 
 export function createPlayer(x, y) {
   return {
@@ -201,7 +202,8 @@ function fireBullet(player, state) {
   state.audio.gunshot();
   burst(state, gx, gy, '#ffe08a', 4, 90, 0.12, 2.5);
   state.threats.push({ x: player.x, y: player.y, until: state.now + 1.5 });
-  if (witnessNearby(state, player.x, player.y, 300)) {
+  if (witnessNearby(state, player.x, player.y, 300) ||
+      policeNearby(state, player.x, player.y, 420)) {
     state.addWanted(1, 'Shots fired');
   }
 }
@@ -225,6 +227,21 @@ function punch(player, state) {
     }
     return;
   }
+  // Officers can be knocked down too — at a price.
+  for (const o of state.police.officers) {
+    if (o.state === 'down') continue;
+    const dx = o.x - player.x;
+    const dy = o.y - player.y;
+    const d = Math.hypot(dx, dy);
+    if (d > reach + 12) continue;
+    if (d > 1 && (dx * fx + dy * fy) / d < 0.3) continue;
+    o.state = 'down';
+    o.downTimer = 8;
+    burst(state, o.x, o.y, '#c8352c', 10, 140, 0.5, 3);
+    state.addWanted(1, 'Officer down');
+    state.stats.officersDown++;
+    return;
+  }
   // A whiff still makes a little noise.
   burst(state, player.x + fx * 20, player.y + fy * 20, '#ffffff', 2, 40, 0.15, 2);
 }
@@ -241,7 +258,10 @@ function enterVehicle(player, v, state) {
   state.audio.click();
   if (wasTraffic || wasParked) {
     state.stats.carsStolen++;
-    if (witnessNearby(state, player.x, player.y, 180)) {
+    if (policeNearby(state, player.x, player.y, 260)) {
+      state.addWanted(1, 'Stolen in front of the police');
+      state.addMessage(`Stole a ${v.spec.label} — the police saw!`);
+    } else if (witnessNearby(state, player.x, player.y, 180)) {
       state.addWanted(1, 'Car stolen in view');
       state.addMessage(`Stole a ${v.spec.label} — someone saw!`);
     } else {
@@ -297,7 +317,7 @@ export function updateBullets(state, dt) {
       burst(state, b.x, b.y, '#7ac8e8', 4, 60, 0.3, 2);
       dead = true;
     }
-    if (!dead) {
+    if (!dead && b.fromPlayer) {
       for (const p of state.peds) {
         if (p.state === 'dead') continue;
         if (Math.hypot(p.x - b.x, p.y - b.y) < 13) {
@@ -311,7 +331,21 @@ export function updateBullets(state, dt) {
         }
       }
     }
-    if (!dead) {
+    if (!dead && b.fromPlayer) {
+      for (const o of state.police.officers) {
+        if (o.state === 'down') continue;
+        if (Math.hypot(o.x - b.x, o.y - b.y) < 13) {
+          o.state = 'down';
+          o.downTimer = 12;
+          burst(state, o.x, o.y, '#c8352c', 12, 160, 0.5, 3);
+          state.addWanted(1, 'Officer down');
+          state.stats.officersDown++;
+          dead = true;
+          break;
+        }
+      }
+    }
+    if (!dead && b.fromPlayer) {
       for (const v of state.vehicles) {
         if (v === state.player.vehicle || v.sinking) continue;
         for (const c of vehicleCircles(v)) {
@@ -321,12 +355,38 @@ export function updateBullets(state, dt) {
             if (v.health <= 0 && !v.wrecked) {
               v.wrecked = true;
               state.events.push({ kind: 'wreck', x: v.x, y: v.y, byPlayer: true, vehicle: v });
+              if (v.type === 'police') state.addWanted(2, 'Police cruiser destroyed');
             }
             dead = true;
             break;
           }
         }
         if (dead) break;
+      }
+    }
+    if (!dead && !b.fromPlayer) {
+      // Police bullets: they hurt the player on foot, or the player's car.
+      const player = state.player;
+      if (!player.vehicle && !player.dead &&
+          Math.hypot(player.x - b.x, player.y - b.y) < 14) {
+        damagePlayer(player, state, 8, b.x - b.vx * 0.05, b.y - b.vy * 0.05);
+        dead = true;
+      } else if (player.vehicle && !player.vehicle.wrecked) {
+        for (const c of vehicleCircles(player.vehicle)) {
+          if (Math.hypot(b.x - c.x, b.y - c.y) < c.r) {
+            player.vehicle.health -= 10;
+            burst(state, b.x, b.y, '#ffb84a', 4, 100, 0.25, 2);
+            if (player.vehicle.health <= 0 && !player.vehicle.wrecked) {
+              player.vehicle.wrecked = true;
+              state.events.push({
+                kind: 'wreck', x: player.vehicle.x, y: player.vehicle.y,
+                byPlayer: false, vehicle: player.vehicle,
+              });
+            }
+            dead = true;
+            break;
+          }
+        }
       }
     }
     if (dead) state.bullets.splice(i, 1);

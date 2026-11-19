@@ -3,6 +3,8 @@
 // shows roads, water, the player arrow, the garage marker, police and cash
 // drops. Updates are throttled so the DOM is not rewritten every frame.
 
+import { missionMarker } from './missions.js';
+
 export function createHud(doc) {
   const el = {
     cash: doc.getElementById('hud-cash'),
@@ -17,6 +19,9 @@ export function createHud(doc) {
     messages: doc.getElementById('hud-messages'),
     rank: doc.getElementById('hud-rank'),
     minimap: doc.getElementById('minimap'),
+    banner: doc.getElementById('mission-banner'),
+    bannerTitle: doc.getElementById('mission-banner-title'),
+    bannerSub: doc.getElementById('mission-banner-sub'),
   };
   const mctx = el.minimap ? el.minimap.getContext('2d') : null;
   let lastTextUpdate = 0;
@@ -52,6 +57,11 @@ export function createHud(doc) {
 
   function hintFor(state) {
     const player = state.player;
+    // Police pressure outranks everything else in the hint line.
+    if (state.police && state.police.bustTimer > 0.5) return 'The cops are grabbing you — RUN!';
+    if (state.wanted > 0 && state.police && !state.police.seen && state.police.evadeTimer > 0) {
+      return `LOSING THE COPS — stay hidden (${Math.ceil(state.police.evadeTimer)}s)`;
+    }
     if (player.vehicle) {
       if (player.vehicle.health < 35) return 'Your car is falling apart — find another ride. (E to exit)';
       return 'WASD drive · Space handbrake · E exit car';
@@ -116,13 +126,32 @@ export function createHud(doc) {
       mctx.arc(drop.x * scale, drop.y * scale, 2.5, 0, Math.PI * 2);
       mctx.fill();
     }
-    // Police (stage 2 chases; any police cruiser shows blue).
+    // Police (any police cruiser shows blue) and on-foot officers.
     mctx.fillStyle = '#4a8aff';
     for (const v of state.vehicles) {
       if (v.type !== 'police' || v.sinking) continue;
       mctx.beginPath();
       mctx.arc(v.x * scale, v.y * scale, 2.5, 0, Math.PI * 2);
       mctx.fill();
+    }
+    if (state.police) {
+      for (const o of state.police.officers) {
+        if (o.state === 'down') continue;
+        mctx.beginPath();
+        mctx.arc(o.x * scale, o.y * scale, 2, 0, Math.PI * 2);
+        mctx.fill();
+      }
+    }
+    // Mission marker (pulsing gold diamond).
+    const marker = missionMarker(state);
+    if (marker) {
+      const pulse = 3.5 + Math.sin(state.now * 4) * 1;
+      mctx.fillStyle = '#ffd228';
+      mctx.save();
+      mctx.translate(marker.x * scale, marker.y * scale);
+      mctx.rotate(Math.PI / 4);
+      mctx.fillRect(-pulse, -pulse, pulse * 2, pulse * 2);
+      mctx.restore();
     }
     // Garage marker.
     const g = world.landmarks.garage;
@@ -155,6 +184,21 @@ export function createHud(doc) {
     mctx.fillText('N', size / 2, 10);
   }
 
+  function updateBanner(state) {
+    if (!el.banner) return;
+    if (state.banner && state.now < state.banner.until) {
+      el.banner.style.display = 'block';
+      if (el.bannerTitle.textContent !== state.banner.title) {
+        el.bannerTitle.textContent = state.banner.title;
+      }
+      if (el.bannerSub.textContent !== state.banner.sub) {
+        el.bannerSub.textContent = state.banner.sub;
+      }
+    } else if (el.banner.style.display !== 'none') {
+      el.banner.style.display = 'none';
+    }
+  }
+
   return {
     update(state, dt) {
       lastTextUpdate += dt;
@@ -164,6 +208,7 @@ export function createHud(doc) {
         updateText(state);
       }
       updateMessages(state);
+      updateBanner(state);
       if (lastMinimap > 0.08) {
         lastMinimap = 0;
         updateMinimap(state);

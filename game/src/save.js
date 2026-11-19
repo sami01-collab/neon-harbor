@@ -2,6 +2,8 @@
 // document: cash, missions, position, vehicle, stats and settings. Loading
 // validates the shape so a corrupt or foreign save never breaks the game.
 
+import { serializeMission } from './missions.js';
+
 const KEY = 'neon-harbor-save-v1';
 
 export function saveExists() {
@@ -38,6 +40,7 @@ export function saveGame(state) {
       : null,
     missionsCompleted: state.missionsCompleted,
     currentMission: state.currentMission,
+    mission: serializeMission(state),
     stats: { ...state.stats },
     settings: { ...state.settings },
     seed: state.seed,

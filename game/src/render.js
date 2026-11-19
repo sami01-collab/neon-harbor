@@ -4,6 +4,7 @@
 // images, no assets.
 
 import { CONFIG } from './config.js';
+import { missionMarker } from './missions.js';
 
 // Daylight for an hour of the game clock: 1 = full day, ~0.2 = deep night.
 // Also returns a dusk factor (0..1) for the orange tint near sunset.
@@ -270,11 +271,12 @@ export function render(state, ctx, canvas) {
     const pulse = 1 + Math.sin(time * 4 + drop.x) * 0.15;
     ctx.save();
     ctx.translate(drop.x, drop.y);
-    ctx.fillStyle = 'rgba(60,220,120,0.25)';
+    // Mission drops glow gold so they stand out from random cash.
+    ctx.fillStyle = drop.mission ? 'rgba(255,210,40,0.3)' : 'rgba(60,220,120,0.25)';
     ctx.beginPath();
     ctx.arc(0, 0, 20 * pulse, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#2fae5f';
+    ctx.fillStyle = drop.mission ? '#c89a1a' : '#2fae5f';
     ctx.beginPath();
     ctx.arc(0, 0, 11, 0, Math.PI * 2);
     ctx.fill();
@@ -288,7 +290,9 @@ export function render(state, ctx, canvas) {
 
   // --- Garage marker (Marlow's) ----------------------------------------------------------
   const g = world.landmarks.garage;
-  if (inView(g.x, g.y, 40)) {
+  const marker = missionMarker(state);
+  const markerAtGarage = marker && Math.hypot(marker.x - g.x, marker.y - g.y) < 5;
+  if (inView(g.x, g.y, 40) && !markerAtGarage) {
     const bob = Math.sin(time * 2.4) * 4;
     ctx.save();
     ctx.translate(g.x, g.y - 30 + bob);
@@ -310,6 +314,51 @@ export function render(state, ctx, canvas) {
     ctx.fillRect(g.x - 3, g.y - 90, 6, 90);
   }
 
+  // --- Mission marker ------------------------------------------------------------
+  if (marker && inView(marker.x, marker.y, 60)) {
+    const pulse = 1 + Math.sin(time * 4) * 0.18;
+    ctx.save();
+    ctx.translate(marker.x, marker.y - 34);
+    ctx.fillStyle = 'rgba(255,210,40,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(0, -13 * pulse);
+    ctx.lineTo(10 * pulse, 0);
+    ctx.lineTo(0, 13 * pulse);
+    ctx.lineTo(-10 * pulse, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#1a1a1a';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('!', 0, 0);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,210,40,0.16)';
+    ctx.fillRect(marker.x - 3, marker.y - 90, 6, 90);
+    ctx.fillStyle = '#ffd76a';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(marker.label, marker.x, marker.y - 52);
+  }
+
+  // --- The Drop grab zone ----------------------------------------------------------
+  if (state.mission.active && state.currentMission === 3 && state.mission.step < 2) {
+    const zone = state.mission.data.zone;
+    if (zone && inView(zone.x, zone.y, zone.r)) {
+      ctx.fillStyle = 'rgba(255,210,40,0.10)';
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,210,40,0.7)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
   // --- Cars -------------------------------------------------------------------------------
   for (const v of state.vehicles) {
     if (!inView(v.x, v.y, 60)) continue;
@@ -320,6 +369,14 @@ export function render(state, ctx, canvas) {
   for (const p of state.peds) {
     if (!inView(p.x, p.y, 20)) continue;
     drawPed(ctx, p);
+  }
+
+  // --- Police officers ----------------------------------------------------------------------
+  if (state.police) {
+    for (const o of state.police.officers) {
+      if (!inView(o.x, o.y, 20)) continue;
+      drawOfficer(ctx, o);
+    }
   }
 
   // --- Player on foot -------------------------------------------------------------------------
@@ -520,6 +577,43 @@ function drawPed(ctx, p) {
   ctx.fillStyle = p.skin;
   ctx.beginPath();
   ctx.arc(3 + bob * 0.3, 0, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawOfficer(ctx, o) {
+  ctx.save();
+  ctx.translate(o.x, o.y);
+  if (o.state === 'down') {
+    ctx.rotate(o.angle);
+    ctx.fillStyle = '#1a2a4a';
+    roundRect(ctx, -10, -4, 20, 8, 4);
+    ctx.fill();
+    ctx.fillStyle = '#e8b88a';
+    ctx.beginPath();
+    ctx.arc(11, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+  const bob = Math.sin(o.walkPhase) * 1.2;
+  ctx.rotate(o.angle);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(1, 2, 7, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Navy uniform with a cap.
+  ctx.fillStyle = '#1a2a4a';
+  ctx.beginPath();
+  ctx.arc(0, 0, 6.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#0d1a30';
+  ctx.beginPath();
+  ctx.arc(2, 0, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e8b88a';
+  ctx.beginPath();
+  ctx.arc(4 + bob * 0.3, 0, 3, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }

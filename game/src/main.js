@@ -15,6 +15,15 @@ import {
   resolveVehicleCollisions,
 } from './vehicles.js';
 import { createPed, updatePed, targetPedCount } from './pedestrians.js';
+import {
+  createPoliceState, updatePolice, clearPolice, spawnCruiser, createOfficer,
+  evadeTotalFor,
+} from './police.js';
+import {
+  createMissionState, startMission, updateMissions, restartMission,
+  onMissionDrop, restoreMission,
+} from './missions.js';
+import { explodeVehicle } from './combat.js';
 import { createCamera, updateCamera, render } from './render.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
@@ -63,12 +72,16 @@ function createState(seed, canvas) {
       distanceDriven: 0,
       shotsFired: 0,
       pedsHit: 0,
+      officersDown: 0,
       bustsEscaped: 0,
       bestWanted: 0,
     },
     settings: { muted: false },
     missionsCompleted: [],
     currentMission: 0,
+    mission: createMissionState(),
+    police: createPoliceState(),
+    banner: null,
     objective: 'Free roam — explore Neon Harbor',
     rank: 'Nobody',
     lastCrimeAt: -100,
@@ -99,6 +112,10 @@ function createState(seed, canvas) {
     const before = this.wanted;
     this.wanted = Math.min(5, this.wanted + amount);
     this.stats.bestWanted = Math.max(this.stats.bestWanted, this.wanted);
+    // A fresh crime tells the police where the player is and restarts
+    // the evade clock: hiding only works while no new crimes happen.
+    this.police.lastSeen = { x: this.player.x, y: this.player.y };
+    this.police.evadeTimer = evadeTotalFor(this.wanted);
     if (this.wanted > before) {
       this.addMessage(`WANTED — ${this.wanted} star${this.wanted > 1 ? 's' : ''} (${reason})`);
     }
@@ -261,7 +278,7 @@ function updatePlaying(state, dt) {
   for (const v of state.vehicles) {
     if (v.driver === 'traffic') {
       updateTrafficCar(v, dt, state.world, state.vehicles, threats, state.now);
-    } else if (v.driver !== 'player' && (v.vx !== 0 || v.vy !== 0)) {
+    } else if (v.driver !== 'player' && v.driver !== 'police' && (v.vx !== 0 || v.vy !== 0)) {
       // A bumped parked car coasts to a stop.
       v.vx *= Math.exp(-2 * dt);
       v.vy *= Math.exp(-2 * dt);
@@ -273,6 +290,10 @@ function updatePlaying(state, dt) {
       burst(state, v.x, v.y, '#555555', 1, 20, 0.9, 5);
     }
   }
+  // Police: cruisers chase, officers pursue on foot, roadblocks go up,
+  // and the evade timer runs while no unit can see the player.
+  updatePolice(state, dt);
+
   resolveVehicleCollisions(state.vehicles, state.events);
 
   // Pedestrians.
@@ -318,6 +339,7 @@ function updatePlaying(state, dt) {
     const drop = state.cashDrops[i];
     if (Math.hypot(state.player.x - drop.x, state.player.y - drop.y) < CONFIG.cashPickupRadius) {
       state.cashDrops.splice(i, 1);
+      if (drop.mission) onMissionDrop(state, drop);
       state.addCash(drop.amount, 'Cash found');
       state.audio.pickup();
       burst(state, drop.x, drop.y, '#3cdc78', 10, 120, 0.5, 3);
@@ -328,28 +350,29 @@ function updatePlaying(state, dt) {
     spawnCashDrop(state);
   }
 
-  // Wanted decay: a quiet stretch drops one star at a time.
-  if (state.wanted > 0 && state.now - state.lastCrimeAt > CONFIG.wantedDecaySec) {
-    state.lastCrimeAt = state.now;
-    state.wanted -= 1;
-    if (state.wanted === 0) {
-      state.stats.bustsEscaped++;
-      state.addMessage('You lost them — wanted level clear.');
-    } else {
-      state.addMessage(`Wanted level down — ${state.wanted} star${state.wanted > 1 ? 's' : ''}.`);
-    }
-  }
+  // Missions: objectives, timers, completion and payouts. (The wanted
+  // level no longer decays on a plain timer — the police system clears it
+  // only once the player has stayed hidden from every unit.)
+  updateMissions(state, dt);
 
   // Event sounds and effects.
   for (const ev of state.events) {
     if (ev.kind === 'crash') {
       state.audio.crash(ev.strength);
       burst(state, ev.x, ev.y, '#ffb84a', 6, 140, 0.35, 2.5);
-      if (ev.byPlayer) state.addWanted(1, 'Hit a car');
+      if (ev.byPlayer) {
+        const hitPolice = (ev.vehicleA && ev.vehicleA.type === 'police') ||
+          (ev.vehicleB && ev.vehicleB.type === 'police');
+        state.addWanted(1, hitPolice ? 'Hit a police car' : 'Hit a car');
+      }
     } else if (ev.kind === 'wreck') {
       state.audio.explosion();
       burst(state, ev.x, ev.y, '#ff7a2d', 22, 220, 0.7, 4);
       burst(state, ev.x, ev.y, '#555555', 12, 90, 1.2, 5);
+      if (ev.vehicle) explodeVehicle(state, ev.vehicle);
+      if (ev.vehicle && ev.vehicle.type === 'police' && ev.byPlayer) {
+        state.addWanted(2, 'Police cruiser destroyed');
+      }
     } else if (ev.kind === 'splash') {
       state.audio.splash();
       burst(state, ev.x, ev.y, '#7ac8e8', 20, 160, 0.6, 3);
@@ -363,6 +386,13 @@ function updatePlaying(state, dt) {
     state.wastedTimer = 0;
     state.audio.engineStop();
     setMode(state, 'wasted');
+  }
+
+  // Busted: the police caught the player (flagged by updatePolice).
+  if (state.police.busted && state.mode === 'playing') {
+    state.police.busted = false;
+    state.audio.engineStop();
+    setMode(state, 'busted');
   }
 
   // Autosave every 45 seconds of play.
@@ -400,10 +430,14 @@ function showOnly(ids, visibleId) {
   }
 }
 
-const OVERLAYS = ['overlay-start', 'overlay-pause', 'overlay-help', 'overlay-wasted'];
+const OVERLAYS = ['overlay-start', 'overlay-pause', 'overlay-help', 'overlay-wasted', 'overlay-busted'];
 
 function setMode(state, mode) {
   state.mode = mode;
+  if (mode !== 'playing') {
+    state.audio.sirenStop();
+    state.audio.engineStop();
+  }
   const hud = document.getElementById('hud');
   if (mode === 'playing') {
     showOnly(OVERLAYS, null);
@@ -417,6 +451,8 @@ function setMode(state, mode) {
     document.getElementById('btn-continue').style.display = saveExists() ? 'block' : 'none';
   } else if (mode === 'wasted') {
     showOnly(OVERLAYS, 'overlay-wasted');
+  } else if (mode === 'busted') {
+    showOnly(OVERLAYS, 'overlay-busted');
   }
 }
 
@@ -431,6 +467,25 @@ function respawn(state) {
   state.player.x = hospital.x;
   state.player.y = hospital.y + 40;
   state.wanted = 0;
+  clearPolice(state);
+  state.camera.x = state.player.x;
+  state.camera.y = state.player.y;
+  setMode(state, 'playing');
+}
+
+function bustedRespawn(state) {
+  const precinct = state.world.landmarks.policeStation;
+  const penalty = Math.max(100, Math.floor(state.cash * 0.1));
+  state.cash = Math.max(0, state.cash - penalty);
+  state.addMessage(`Fine paid: -$${penalty}`);
+  if (state.player.vehicle) state.player.vehicle.driver = 'parked';
+  state.player.vehicle = null;
+  state.player.x = precinct.x;
+  state.player.y = precinct.y + 40;
+  state.player.health = CONFIG.playerHealth;
+  state.player.dead = false;
+  state.wanted = 0;
+  clearPolice(state);
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
   setMode(state, 'playing');
@@ -478,7 +533,7 @@ function main() {
     state.canvas = canvas;
     setMode(state, 'playing');
     state.addMessage('Welcome to Neon Harbor, Rook.');
-    state.addMessage('Steal a car and head for Marlow\'s garage (M on the map).');
+    startMission(state, 0);
     state.hud.refresh(state);
   });
   document.getElementById('btn-continue').addEventListener('click', () => {
@@ -493,6 +548,7 @@ function main() {
     state.hud = createHud(document);
     state.canvas = canvas;
     applySave(state, data);
+    restoreMission(state, data.mission);
     state.audio.setMuted(state.settings.muted);
     setMode(state, 'playing');
     state.addMessage('Welcome back, Rook.');
@@ -526,9 +582,12 @@ function main() {
     state.player.y = safe.y;
     state.player.health = CONFIG.playerHealth;
     state.wanted = 0;
+    clearPolice(state);
+    if (!restartMission(state)) {
+      state.addMessage('Back at the safehouse.');
+    }
     state.camera.x = safe.x;
     state.camera.y = safe.y;
-    state.addMessage('Back at the safehouse.');
     setMode(state, 'playing');
   });
   document.getElementById('btn-mute').addEventListener('click', () => {
@@ -542,6 +601,10 @@ function main() {
   document.getElementById('btn-respawn').addEventListener('click', () => {
     state.audio.click();
     respawn(state);
+  });
+  document.getElementById('btn-busted-respawn').addEventListener('click', () => {
+    state.audio.click();
+    bustedRespawn(state);
   });
 
   function toggleMute(s) {
@@ -575,7 +638,7 @@ function main() {
   // Debug handle for playtests (not part of the game itself).
   window.__game = {
     state,
-    version: 'neon-harbor-stage1',
+    version: 'neon-harbor-stage2',
     teleport(x, y) {
       state.player.x = x;
       state.player.y = y;
@@ -600,7 +663,25 @@ function main() {
       state.addCash(n);
     },
     setWanted(n) {
-      state.wanted = n;
+      state.wanted = Math.max(0, Math.min(5, n));
+      state.lastCrimeAt = state.now;
+      state.stats.bestWanted = Math.max(state.stats.bestWanted, state.wanted);
+      if (n === 0) clearPolice(state);
+    },
+    startMission(i) {
+      startMission(state, i);
+    },
+    spawnOfficerAt(x, y) {
+      const fixed = state.world.collideCircle(x, y, 10);
+      const o = createOfficer(fixed.x, fixed.y);
+      state.police.officers.push(o);
+      return o;
+    },
+    spawnCruiserAt(x, y, angle) {
+      return spawnCruiser(state, x, y, angle || 0, 'chase');
+    },
+    clearPolice() {
+      clearPolice(state);
     },
     start() {
       setMode(state, 'playing');
@@ -621,9 +702,9 @@ function main() {
     while (acc >= STEP && steps < 5) {
       if (state.mode === 'playing') updatePlaying(state, STEP);
       else if (state.mode === 'menu') updateMenu(state, STEP);
-      else if (state.mode === 'wasted') {
+      else if (state.mode === 'wasted' || state.mode === 'busted') {
         state.wastedTimer += STEP;
-        // The world freezes on the wasted screen; the overlay covers it.
+        // The world freezes on the wasted/busted screen; the overlay covers it.
       }
       acc -= STEP;
       steps++;

@@ -50,6 +50,13 @@
     position: absolute; left: 14px; bottom: 210px; width: 340px;
     display: flex; flex-direction: column; gap: 4px;
   }
+  #mission-banner {
+    position: absolute; top: 17%; left: 50%; transform: translateX(-50%);
+    text-align: center; display: none; pointer-events: none;
+    text-shadow: 0 2px 12px rgba(0,0,0,0.9);
+  }
+  #mission-banner-title { font-size: 40px; font-weight: 900; letter-spacing: 3px; color: #ffd228; }
+  #mission-banner-sub { font-size: 16px; color: #fff; margin-top: 6px; max-width: 520px; line-height: 1.5; }
   .hud-message {
     font-size: 13px; background: rgba(8, 10, 20, 0.6); border-left: 3px solid #3cdc78;
     padding: 5px 10px; border-radius: 0 6px 6px 0;
@@ -95,6 +102,7 @@
   .menu-btn.secondary:hover { background: rgba(255,255,255,0.2); }
   .overlay h2 { font-size: 30px; letter-spacing: 3px; margin-bottom: 16px; }
   .overlay h2.wasted { color: #ff2d2d; font-size: 44px; }
+  .overlay h2.busted { color: #4a8aff; font-size: 44px; }
   .help-grid { text-align: left; font-size: 14px; line-height: 2; color: #d8d8e8; margin: 8px 0 20px; }
   .help-grid b { color: #ffd76a; display: inline-block; min-width: 150px; }
   .footer-note { margin-top: 22px; font-size: 11px; color: #8a8aa0; letter-spacing: 1px; }
@@ -120,6 +128,7 @@
     <div id="hud-clock">10:00</div>
   </div>
   <div id="hud-messages"></div>
+  <div id="mission-banner"><div id="mission-banner-title"></div><div id="mission-banner-sub"></div></div>
   <div id="minimap-wrap"><canvas id="minimap" width="180" height="180"></canvas></div>
   <div id="hud-speed"><span id="hud-speed-value">0</span><small>KM/H</small></div>
   <div id="hud-hint">WASD move · Shift sprint · Click shoot · F punch · E enter car</div>
@@ -148,7 +157,7 @@
     <h2>PAUSED</h2>
     <button class="menu-btn" id="btn-resume">Resume</button>
     <button class="menu-btn secondary" id="btn-save">Save Game</button>
-    <button class="menu-btn secondary" id="btn-restart">Restart — back to safehouse</button>
+    <button class="menu-btn secondary" id="btn-restart">Restart mission</button>
     <button class="menu-btn secondary" id="btn-mute">Mute (M)</button>
     <button class="menu-btn secondary" id="btn-quit">Save &amp; quit to menu</button>
   </div>
@@ -166,7 +175,10 @@
       <div><b>Space</b> Handbrake (drift)</div>
       <div><b>P / Esc</b> Pause &nbsp;·&nbsp; <b>M</b> Mute &nbsp;·&nbsp; <b>H</b> Help</div>
       <div><b>$ drops</b> Walk or drive over them to collect cash</div>
-      <div><b>Stars</b> Crimes raise your wanted level — lie low to lose it</div>
+      <div><b>Stars</b> Crimes raise your wanted level — cruisers chase, officers hunt on foot</div>
+      <div><b>Losing cops</b> Break line of sight and stay hidden until the heat is off</div>
+      <div><b>Busted</b> Caught on foot, or boxed in while stopped, means a fine and the cells</div>
+      <div><b>Missions</b> Follow the gold ! marker — Marlow pays on completion</div>
       <div><b>Water</b> The harbour wrecks cars — stay on dry land</div>
     </div>
     <button class="menu-btn" id="btn-help-back">Back</button>
@@ -179,6 +191,15 @@
     <h2 class="wasted">WASTED</h2>
     <p class="game-tagline">Rook went down. The hospital patches you up — for a price.</p>
     <button class="menu-btn" id="btn-respawn">Respawn at Harbor General</button>
+  </div>
+</div>
+
+<!-- Busted -->
+<div class="overlay" id="overlay-busted">
+  <div class="overlay-box">
+    <h2 class="busted">BUSTED</h2>
+    <p class="game-tagline">The cops caught up with Rook. A night in the cells, a fine, and Central Precinct lets you walk.</p>
+    <button class="menu-btn" id="btn-busted-respawn">Walk out of Central Precinct</button>
   </div>
 </div>
 

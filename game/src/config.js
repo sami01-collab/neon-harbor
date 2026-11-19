@@ -34,8 +34,17 @@ export const CONFIG = {
   gunRange: 520,
 
   // Wanted
-  wantedDecaySec: 26, // seconds of clean behaviour to drop one star
   wantedCrimeCooldown: 4, // seconds between wanted increments
+
+  // Police
+  policeSightRange: 520, // cruisers spot the player within this range (with line of sight)
+  policeOfficerSight: 340,
+  policeEvadeBase: 6, // seconds hidden to lose the cops, before the per-star bonus
+  policeEvadePerStar: 2,
+  policeBustTime: 1.5, // seconds pinned by an officer on foot before busted
+  policeBoxedBustTime: 2.5, // seconds stopped with 2+ cruisers alongside
+  policeShootStars: 4, // police open fire at this wanted level
+  roadblockStars: 3, // roadblocks go up at this wanted level
 
   // Cash
   cashDropCount: 9,
